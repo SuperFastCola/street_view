@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <style type="text/css" media="screen">
+      label{
+        display:block;
+      }
+
+      .address_area{
+      margin-bottom: 10px;
+      }
+
+      #controls{
+        width: 250px;
+        height: 200px;
+        border:1px solid red;
+        position: absolute;
+        left: 10px;
+        top: 10px;
+      }
+
+      #get_image.hidden,#butn_zoom_out.hidden,#butn_zoom_in.hidden{
+        display:none;
+      }
+
+      #pano,#street_view_holder{
+        position:absolute;
+        left: 270px;
+        top: 10px;
+        width: 400px;
+        height: 400px;
+      }
+
+      .quarantined_house{
+        position:absolute;
+        z-index: 2000;
+        left: 50%;
+        top: 50%;
+        margin-left: -200px;
+        margin-top: -200px;
+        width: 400px;
+        height: 400px;
+      }
+
+      #street_view_holder{
+        left: 680px;
+      }
+
+
+    </style>
+    <style type="text/css">
+      html { height: 100% }
+      body { height: 100%; margin: 0; padding: 0 }
+      #map-canvas { height: 100% }
+    </style>
+    <script type="text/javascript" src="jquery-1.9.1.min.js"></script>
+    <script type="text/javascript" src="browser.js"></script>
+    <script type="text/javascript" src="general_v2.js"></script>
+    <script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?key=YOURAPIKEY&sensor=false"></script>
+
+    <script type="text/javascript">
+
+      var n_props = {
+        "lat":0,
+        "fov":90,
+        "lng":0,
+        "head":0,
+        "pitch":0,
+        "zoom":1
+      };
+    
+      function getStreetViewFromAddress(e){
+          var submit  = document.getElementById("address").value;
+          var jsonurl = "https://maps.googleapis.com/maps/api/geocode/json?address=" + encodeURIComponent(submit) + "&sensor=true";
+
+          if(typeof submit != "undefined" && submit != "" && submit != null){
+
+            if(window.XDomainRequest) {
+              // Use Microsoft XDR
+              var xdr = new XDomainRequest();
+              xdr.open("get",jsonurl);
+              xdr.onload = function(){
+                streetViewTest(JSON.parse(xdr.responseText));
+              };
+
+              xdr.send();
+            } 
+            else {
+              ajaxRequest(jsonurl,'GET','json',null,streetViewTest);
+            }
+          }
+          else{
+            alert("Please Enter an Address");
+          }
+          return false;
+      }
+
+
+      function requestMapImage(){
+
+        //use curl on backend to output to file
+        //curl "https://maps.googleapis.com/maps/api/streetview?key=YOURAPIKEY&location=33.869709,-84.20649700000001&heading=0&pitch=0&fov=90&size=400x400&sensor=false" -o "test.jpg"
+        
+          var w = 400;
+          var h = 400;
+
+          // console.log(n_props.zoom + " " + n_props.fov);
+          // console.log(n_props.zoom);
+
+          var image_from_address = "https://maps.googleapis.com/maps/api/streetview?key=YOURAPIKEY&location=" + n_props.lat + "," + n_props.lng  + "&heading=" + n_props.head + "&pitch=" + n_props.pitch + "&fov=" +  n_props.fov + "&size="+ w +"x"+ h +"&sensor=false";
+
+
+          //console.log(image_from_address);
+
+          ajaxRequest("make_image.php","POST",'text',{"google_url":image_from_address},showQuarantinedImage);
+
+          // var holder = document.getElementById("street_view_holder");
+          // holder.style.backgroundImage = "url(" +  image_from_address + ")";
+
+          // addRemoveClass("#butn_zoom_out",false,"hidden");
+          // addRemoveClass("#butn_zoom_in",false,"hidden");
+      }
+
+
+      function removeImage(){
+        $(".quarantined_house").remove();
+      }
+
+      function showQuarantinedImage(output){
+          $("body").append('<div class="quarantined_house" style="background-image:url(quarantined/' + output  + ');"></div>');
+          clickEvnt(".quarantined_house",removeImage);
+      }
+
+      function getImageFromAddress(e){
+          e.preventDefault();
+          requestMapImage();
+          return false;
+      }
+
+      function streetViewTest(output){
+
+          if(Boolean(output.status.match(/ok/i)) ){
+
+            addRemoveClass("#get_image",false,"hidden");
+
+            var query_results = output.results[0];
+           
+            var lat = query_results.geometry.location.lat;
+            n_props.lat = lat;
+
+            var lng = query_results.geometry.location.lng;
+            n_props.lng = lng;
+
+            /*console.log(n_props.lat);
+            console.log(n_props.lng);
+            console.log(n_props);*/
+
+            var requested_address = new google.maps.LatLng(lat,lng);
+
+            var mapOptions = {
+              center: requested_address,
+              zoom: n_props.zoom
+            };
+           
+            // var map = new google.maps.Map(
+            // document.getElementById('map-canvas'), mapOptions);
+            
+            var panoramaOptions = {
+              position: requested_address
+            };
+
+            var panorama = new  google.maps.StreetViewPanorama(document.getElementById('pano'),panoramaOptions);
+            //map.setStreetView(panorama);
+
+            google.maps.event.addListener(panorama, 'pano_changed', function() {
+              //console.log(panorama.getPano());
+            });
+
+            google.maps.event.addListener(panorama, 'position_changed', function() {
+              var obj = panorama.getPosition();
+              n_props.lat = obj.k;
+              n_props.lng = obj.A;
+            });
+
+            google.maps.event.addListener(panorama, 'pov_changed', function() {
+                n_props.head = panorama.getPov().heading;
+                n_props.pitch = panorama.getPov().pitch;
+
+                //https://groups.google.com/forum/#!topic/google-maps-js-api-v3/uqKfg0ZBhWc
+                var zoom=panorama.getPov().zoom;
+                var values=[120, 90, 53.5, 28.3, 14.3, 10];
+                n_props.fov = values[Math.round(zoom)];
+                console.log(n_props.fov);
+            });
+
+          }
+          else{
+            alert("Please Enter a Valid Address");
+          }
+
+      }
+
+      function zoomMap(e){
+        var zid = e.target.id;
+
+        if(zid=="butn_zoom_out"){
+          n_props.fov -= 5;
+        }
+        else{
+          n_props.fov += 5;
+        }
+
+        requestMapImage();
+
+        return false;
+      }
+
+
+      function initialize() {
+        var mapOptions = {
+          center: new google.maps.LatLng(-34.397, 150.644),
+          zoom: 8
+        };
+        var map = new google.maps.Map(document.getElementById("map-canvas"),
+            mapOptions);
+      }
+
+
+      function startMap(){
+        clickEvnt("#submit_address",getStreetViewFromAddress,true);
+        clickEvnt("#get_image",getImageFromAddress,true);
+        clickEvnt("#butn_zoom_out",zoomMap,true);
+        clickEvnt("#butn_zoom_in",zoomMap,true);
+        
+      }
+
+      //google.maps.event.addDomListener(window, 'load', streetViewTest);
+
+//      document.addEventListener("DOMContentLoaded",startMap);
+      $(function(){
+        startMap();
+      });
+
+    </script>
+  </head>
+  <body>
+    <!--
+     <div id="map-canvas" style="width: 400px; height: 300px"></div>-->
+   
+    <div id="pano"></div>
+    <div id="street_view_holder"></div>
+    <form id="controls">
+      <div class="address_area">
+        <label for="address">Your Address</label>
+        <input type="text" name="address" id="address" value=""/>
+        <button id="submit_address">Submit</button>
+      </div>
+      
+      <div class="button_area">
+        <button id="get_image" class="hidden">Quarantine Area</button>
+        <button id="butn_zoom_out" class="hidden">Zoom In</button>
+        <button id="butn_zoom_in" class="hidden">Zoom Out</button>
+      </div>
+    </form>
+  </body>
+</html>
